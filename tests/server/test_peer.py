@@ -1,5 +1,5 @@
 """Test a Peer object."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import hashlib
 import os
@@ -14,20 +14,28 @@ from snitun.exceptions import SniTunChallengeError
 
 def test_init_peer():
     """Test simple init of peer."""
-    valid = datetime.utcnow() + timedelta(days=1)
-    peer = Peer("localhost", valid, os.urandom(32), os.urandom(16))
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
+    peer = Peer(
+        "localhost",
+        valid,
+        os.urandom(32),
+        os.urandom(16),
+        alias="localhost.custom",
+    )
 
     assert peer.is_valid
     assert peer.hostname == "localhost"
     assert peer.multiplexer is None
+    assert peer.alias == "localhost.custom"
 
 
-async def test_init_peer_multiplexer(loop, test_client, test_server):
+async def test_init_peer_multiplexer(event_loop, test_client, test_server):
     """Test setup multiplexer."""
+    loop = event_loop
     client = test_server[0]
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
 
     peer = Peer("localhost", valid, aes_key, aes_iv)
     crypto = CryptoTransport(aes_key, aes_iv)
@@ -63,12 +71,13 @@ async def test_init_peer_multiplexer(loop, test_client, test_server):
     assert not peer.multiplexer.is_connected
 
 
-async def test_init_peer_multiplexer_crypto(loop, test_client, test_server):
+async def test_init_peer_multiplexer_crypto(event_loop, test_client, test_server):
     """Test setup multiplexer with crypto."""
+    loop = event_loop
     client = test_server[0]
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
 
     peer = Peer("localhost", valid, aes_key, aes_iv)
     crypto = CryptoTransport(aes_key, aes_iv)
@@ -114,12 +123,13 @@ async def test_init_peer_multiplexer_crypto(loop, test_client, test_server):
     assert peer.multiplexer.wait().done()
 
 
-async def test_init_peer_wrong_challenge(loop, test_client, test_server):
+async def test_init_peer_wrong_challenge(event_loop, test_client, test_server):
     """Test setup multiplexer wrong challenge."""
+    loop = event_loop
     client = test_server[0]
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
 
     peer = Peer("localhost", valid, aes_key, aes_iv)
     crypto = CryptoTransport(aes_key, aes_iv)
@@ -149,7 +159,7 @@ async def test_init_peer_wrong_challenge(loop, test_client, test_server):
 
 def test_init_peer_invalid():
     """Test simple init of peer with invalid date."""
-    valid = datetime.utcnow() - timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) - timedelta(days=1)
     peer = Peer("localhost", valid, os.urandom(32), os.urandom(16))
 
     assert not peer.is_valid
@@ -157,12 +167,13 @@ def test_init_peer_invalid():
     assert peer.multiplexer is None
 
 
-async def test_init_peer_multiplexer_throttling(loop, test_client, test_server):
+async def test_init_peer_multiplexer_throttling(event_loop, test_client, test_server):
     """Test setup multiplexer."""
+    loop = event_loop
     client = test_server[0]
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
 
     peer = Peer("localhost", valid, aes_key, aes_iv, throttling=500)
     crypto = CryptoTransport(aes_key, aes_iv)

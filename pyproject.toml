@@ -1,0 +1,199 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+  "setuptools>=62.3",
+]
+
+[project]
+authors = [
+  {name = "Nabu Casa, Inc.", email = "opensource@nabucasa.com"},
+]
+classifiers = [
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Topic :: Internet :: Proxy Servers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "aiohttp>=3.9.3",
+    "attrs>=18.2.0",
+    "async_timeout>=3.0.1",
+    "cryptography>=2.5",
+]
+description = "SNI proxy with TCP multiplexer"
+keywords = ["sni", "proxy", "multiplexer", "tls"]
+license = {text = "GPL v3"}
+name = "snitun"
+readme = "README.md"
+requires-python = ">=3.10"
+version = "0.40.0"
+
+[project.optional-dependencies]
+lint = [
+    "pylint==3.2.7",
+    "ruff==0.8.4",
+]
+test = [
+    "pytest-aiohttp==1.0.5",
+    "pytest-timeout==2.3.1",
+    "pytest==8.3.4",
+]
+
+[project.urls]
+Homepage = "https://www.nabucasa.com/"
+Repository = "https://github.com/NabuCasa/snitun.git"
+
+[tool.isort]
+combine_as_imports = true
+default_section = "THIRDPARTY"
+force_grid_wrap = 0
+force_sort_within_sections = true
+forced_separate = "tests"
+include_trailing_comma = true
+indent = "    "
+line_length = 88
+multi_line_output = 3
+sections = [
+    "FUTURE",
+    "STDLIB",
+    "THIRDPARTY",
+    "FIRSTPARTY",
+    "LOCALFOLDER",
+]
+use_parentheses = true
+
+[tool.pylint.BASIC]
+disable = [
+  "abstract-method",
+  "cyclic-import",
+  "duplicate-code",
+  "global-statement",
+  "line-too-long",
+  "locally-disabled",
+  "missing-docstring",
+  "not-context-manager",
+  "protected-access",
+  "too-few-public-methods",
+  "too-few-public-methods",
+  "too-many-arguments",
+  "too-many-branches",
+  "too-many-branches",
+  "too-many-instance-attributes",
+  "too-many-lines",
+  "too-many-locals",
+  "too-many-locals",
+  "too-many-public-methods",
+  "too-many-return-statements",
+  "too-many-statements",
+  "unused-argument",
+]
+generated-members=[
+  "botocore.errorfactory",
+]
+good-names= [
+  "_",
+  "ex",
+  "fp",
+  "i",
+  "id",
+  "iv",
+  "j",
+  "k",
+  "Run",
+  "T",
+]
+
+
+[tool.pylint.EXCEPTIONS]
+overgeneral-exceptions=[
+  "builtins.Exception",
+]
+
+[tool.pylint.MAIN]
+ignore=[
+  "tests_*",
+]
+reports=false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+fix = true
+line-length = 88
+show-fixes = true
+target-version = "py310"
+
+[tool.ruff.lint]
+ignore = [
+  "ANN101", # https://docs.astral.sh/ruff/rules/missing-type-self/
+  "EM101", # https://docs.astral.sh/ruff/rules/raw-string-in-exception/
+  "EM102", # https://docs.astral.sh/ruff/rules/f-string-in-exception/
+  "FBT", # https://docs.astral.sh/ruff/rules/#flake8-boolean-trap-fbt
+  "N818", # https://docs.astral.sh/ruff/rules/error-suffix-on-exception-name/
+  "PLR2004", # https://docs.astral.sh/ruff/rules/magic-value-comparison/
+  "PERF203", # https://docs.astral.sh/ruff/rules/try-except-in-loop/
+  "S101", # https://docs.astral.sh/ruff/rules/assert/
+  "S104", # https://docs.astral.sh/ruff/rules/hardcoded-bind-all-interfaces/
+  "TCH001", # https://docs.astral.sh/ruff/rules/typing-only-first-party-import/
+  "TCH003", # https://docs.astral.sh/ruff/rules/typing-only-standard-library-import/
+  "TID252", # https://docs.astral.sh/ruff/rules/relative-imports/
+  "TRY003", # https://docs.astral.sh/ruff/rules/raise-vanilla-args/
+  "TRY301", # https://docs.astral.sh/ruff/rules/raise-within-try/
+  "TRY400", # https://docs.astral.sh/ruff/rules/error-instead-of-exception/
+]
+
+select = [
+  "ALL",
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"py.typed" = [
+  "D100",
+]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+known-first-party = [
+  "snitun",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 22
+
+[tool.ruff.lint.pydocstyle]
+# Use Google-style docstrings.
+convention = "pep257"
+
+[tool.ruff.lint.pylint]
+max-args = 15
+max-branches = 30
+max-returns = 8
+max-statements = 80
+
+[tool.setuptools]
+include-package-data = true
+platforms = [
+  "any",
+]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+include = [
+    "snitun",
+    "snitun.server",
+    "snitun.client",
+    "snitun.multiplexer",
+    "snitun.utils",
+]

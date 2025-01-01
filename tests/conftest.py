@@ -1,6 +1,6 @@
 """Pytest fixtures for SniTun."""
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 from unittest.mock import patch
@@ -41,7 +41,7 @@ def raise_timeout():
 
 
 @pytest.fixture
-async def test_server(loop):
+async def test_server():
     """Create a TCP test server."""
     connections = []
 
@@ -56,11 +56,10 @@ async def test_server(loop):
     yield connections
 
     server.close()
-    await server.wait_closed()
 
 
 @pytest.fixture
-async def test_endpoint(loop):
+async def test_endpoint():
     """Create a TCP test endpoint."""
     connections = []
 
@@ -75,7 +74,6 @@ async def test_endpoint(loop):
     yield connections
 
     server.close()
-    await server.wait_closed()
 
 
 @pytest.fixture
@@ -90,12 +88,13 @@ async def test_client(test_server):
 
 
 @pytest.fixture
-def test_server_sync(loop):
+def test_server_sync(event_loop):
     """Create a TCP test server."""
     connections = []
     shutdown = False
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", 8366))
     sock.listen(2)
     sock.setblocking(False)
@@ -219,9 +218,9 @@ def crypto_transport():
 
 
 @pytest.fixture
-async def peer(loop, crypto_transport, multiplexer_server):
+async def peer(crypto_transport, multiplexer_server):
     """Init a peer with transport."""
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     peer = Peer("localhost", valid, os.urandom(32), os.urandom(16))
     peer._crypto = crypto_transport
     peer._multiplexer = multiplexer_server

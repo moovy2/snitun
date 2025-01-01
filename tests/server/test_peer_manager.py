@@ -1,7 +1,7 @@
 """Test peer manager."""
 import asyncio
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -26,7 +26,7 @@ async def test_init_new_peer():
     """Init a new peer."""
     manager = PeerManager(FERNET_TOKENS)
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -47,11 +47,46 @@ async def test_init_new_peer():
     assert manager.connections == 1
 
 
+async def test_init_new_peer_with_alias():
+    """Init a new peer with custom domain."""
+    manager = PeerManager(FERNET_TOKENS)
+
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
+    aes_key = os.urandom(32)
+    aes_iv = os.urandom(16)
+    hostname = "localhost"
+    alias = "localhost.custom"
+    fernet_token = create_peer_config(
+        valid.timestamp(), hostname, aes_key, aes_iv, alias=[alias]
+    )
+
+    peer = manager.create_peer(fernet_token)
+    assert peer.hostname == hostname
+    assert peer.alias == [alias]
+    assert not peer.is_ready
+    assert not manager.get_peer(hostname)
+    assert not manager.get_peer(alias)
+    assert not manager.peer_available(hostname)
+    assert not manager.peer_available(alias)
+    assert hostname not in manager._peers
+    assert alias not in manager._peers
+    assert manager.connections == 0
+
+    manager.add_peer(peer)
+    assert manager.get_peer(hostname)
+    assert manager.get_peer(alias)
+    assert not manager.peer_available(hostname)
+    assert not manager.peer_available(alias)
+    assert hostname in manager._peers
+    assert alias in manager._peers
+    assert manager.connections == 2
+
+
 async def test_init_new_peer_not_valid_time():
     """Init a new peer."""
     manager = PeerManager(FERNET_TOKENS)
 
-    valid = datetime.utcnow() - timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) - timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -73,7 +108,7 @@ async def test_init_new_peer_with_removing():
     """Init a new peer."""
     manager = PeerManager(FERNET_TOKENS)
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -105,7 +140,7 @@ async def test_init_new_peer_with_events():
 
     manager = PeerManager(FERNET_TOKENS, event_callback=_events)
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -139,7 +174,7 @@ async def test_init_new_peer_throttling():
     """Init a new peer."""
     manager = PeerManager(FERNET_TOKENS, throttling=500)
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -161,7 +196,7 @@ async def test_init_dual_peer_with_removing():
     """Init a new peer."""
     manager = PeerManager(FERNET_TOKENS)
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -202,7 +237,7 @@ async def test_init_dual_peer_with_multiplexer(multiplexer_client):
     """Init a new peer."""
     manager = PeerManager(FERNET_TOKENS)
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"

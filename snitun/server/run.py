@@ -1,5 +1,9 @@
 """SniTun reference implementation."""
+
+from __future__ import annotations
+
 import asyncio
+from collections.abc import Awaitable, Iterable
 from contextlib import suppress
 from itertools import cycle
 import logging
@@ -8,20 +12,22 @@ import os
 import select
 import signal
 import socket
-from typing import Awaitable, Iterable, List, Optional, Dict
 from threading import Thread
 
 import async_timeout
+import attr
 
+from ..exceptions import ParseSNIIncompleteError
+from ..utils.server import MAX_BUFFER_SIZE, MAX_READ_SIZE
 from .listener_peer import PeerListener
 from .listener_sni import SNIProxy
 from .peer_manager import PeerManager
-from .worker import ServerWorker
 from .sni import ParseSNIError, parse_tls_sni
+from .worker import ServerWorker
 
 _LOGGER = logging.getLogger(__name__)
 
-WORKER_STALE_MAX = 10
+WORKER_STALE_MAX = 30
 
 
 class SniTunServer:
@@ -29,18 +35,20 @@ class SniTunServer:
 
     def __init__(
         self,
-        fernet_keys: List[str],
-        sni_port: Optional[int] = None,
-        sni_host: Optional[str] = None,
-        peer_port: Optional[int] = None,
-        peer_host: Optional[str] = None,
-        throttling: Optional[int] = None,
-    ):
+        fernet_keys: list[str],
+        sni_port: int | None = None,
+        sni_host: str | None = None,
+        peer_port: int | None = None,
+        peer_host: str | None = None,
+        throttling: int | None = None,
+    ) -> None:
         """Initialize SniTun Server."""
         self._peers: PeerManager = PeerManager(fernet_keys, throttling=throttling)
         self._list_sni: SNIProxy = SNIProxy(self._peers, host=sni_host, port=sni_port)
         self._list_peer: PeerListener = PeerListener(
-            self._peers, host=peer_host, port=peer_port
+            self._peers,
+            host=peer_host,
+            port=peer_port,
         )
 
     @property
@@ -53,14 +61,24 @@ class SniTunServer:
 
         Return coroutine.
         """
-        return asyncio.wait([self._list_peer.start(), self._list_sni.start()])
+        return asyncio.wait(
+            [
+                asyncio.create_task(self._list_peer.start()),
+                asyncio.create_task(self._list_sni.start()),
+            ],
+        )
 
     def stop(self) -> Awaitable[None]:
         """Stop server.
 
         Return coroutine.
         """
-        return asyncio.wait([self._list_peer.stop(), self._list_sni.stop()])
+        return asyncio.wait(
+            [
+                asyncio.create_task(self._list_peer.stop()),
+                asyncio.create_task(self._list_sni.stop()),
+            ],
+        )
 
 
 class SniTunServerSingle:
@@ -68,14 +86,14 @@ class SniTunServerSingle:
 
     def __init__(
         self,
-        fernet_keys: List[str],
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        throttling: Optional[int] = None,
-    ):
+        fernet_keys: list[str],
+        host: str | None = None,
+        port: int | None = None,
+        throttling: int | None = None,
+    ) -> None:
         """Initialize SniTun Server."""
         self._loop: asyncio.BaseEventLoop = asyncio.get_event_loop()
-        self._server: Optional[asyncio.AbstractServer] = None
+        self._server: asyncio.AbstractServer | None = None
         self._peers: PeerManager = PeerManager(fernet_keys, throttling=throttling)
         self._list_sni: SNIProxy = SNIProxy(self._peers)
         self._list_peer: PeerListener = PeerListener(self._peers)
@@ -90,7 +108,9 @@ class SniTunServerSingle:
     async def start(self) -> None:
         """Run server."""
         self._server = await asyncio.start_server(
-            self._handler, host=self._host, port=self._port
+            self._handler,
+            host=self._host,
+            port=self._port,
         )
 
     async def stop(self) -> None:
@@ -99,7 +119,9 @@ class SniTunServerSingle:
         await self._server.wait_closed()
 
     async def _handler(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
     ) -> None:
         """Handle incoming connection."""
         try:
@@ -120,11 +142,11 @@ class SniTunServerSingle:
         # Select the correct handler for process data
         if data[0] == 0x16:
             self._loop.create_task(
-                self._list_sni.handle_connection(reader, writer, data=data)
+                self._list_sni.handle_connection(reader, writer, data=data),
             )
         elif data.startswith(b"gA"):
             self._loop.create_task(
-                self._list_peer.handle_connection(reader, writer, data=data)
+                self._list_peer.handle_connection(reader, writer, data=data),
             )
         else:
             _LOGGER.warning("No valid ClientHello found: %s", data)
@@ -132,31 +154,60 @@ class SniTunServerSingle:
             return
 
 
+@attr.s(slots=True)
+class Connection:
+    """Connection data class."""
+
+    sock: socket.socket = attr.ib()
+    epoll: select.epoll = attr.ib()
+    buffer: bytes = attr.ib(default=b"")
+    stale: int = attr.ib(default=0)
+    close: bool = attr.ib(default=False)
+
+    @property
+    def fileno(self) -> int:
+        """Return filehanle ID."""
+        return self.sock.fileno()
+
+    def soft_close(self) -> None:
+        """Socket got handled over."""
+        self.close = True
+        self.epoll.unregister(self.fileno)
+
+    def close_socket(self, shutdown: bool = True) -> None:
+        """Gracefull shutdown a socket or free the handle."""
+        self.soft_close()
+        with suppress(OSError):
+            if shutdown:
+                self.sock.shutdown(socket.SHUT_RDWR)
+            self.sock.close()
+
+
 class SniTunServerWorker(Thread):
     """SniTunServer helper class for Worker."""
 
     def __init__(
         self,
-        fernet_keys: List[str],
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        worker_size: Optional[int] = None,
-        throttling: Optional[int] = None,
-    ):
+        fernet_keys: list[str],
+        host: str | None = None,
+        port: int | None = None,
+        worker_size: int | None = None,
+        throttling: int | None = None,
+    ) -> None:
         """Initialize SniTun Server."""
         super().__init__()
 
         self._host: str = host or "0.0.0.0"
         self._port: int = port or 443
-        self._fernet_keys: List[str] = fernet_keys
-        self._throttling: Optional[int] = throttling
+        self._fernet_keys: list[str] = fernet_keys
+        self._throttling: int | None = throttling
         self._worker_size: int = worker_size or (cpu_count() * 2)
-        self._workers: List[ServerWorker] = []
+        self._workers: list[ServerWorker] = []
         self._running: bool = False
 
         # TCP server
-        self._server: Optional[socket.socket] = None
-        self._poller: Optional[select.epoll] = None
+        self._server: socket.socket | None = None
+        self._poller: select.epoll | None = None
 
     @property
     def peer_counter(self) -> int:
@@ -201,9 +252,10 @@ class SniTunServerWorker(Thread):
     def run(self) -> None:
         """Handle incoming connection."""
         fd_server = self._server.fileno()
-        connections: Dict[int, socket.socket] = {}
+        connections: dict[int, Connection] = {}
         worker_lb = cycle(self._workers)
-        stale: Dict[int, int] = {}
+
+        _LOGGER.info("Server started, fd: %s", fd_server)
 
         while self._running:
             events = self._poller.poll(1)
@@ -214,33 +266,38 @@ class SniTunServerWorker(Thread):
                     con.setblocking(False)
 
                     self._poller.register(
-                        con.fileno(), select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR
+                        con.fileno(),
+                        select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR,
                     )
-                    connections[con.fileno()] = con
-                    stale[con.fileno()] = 0
+                    connections[con.fileno()] = Connection(con, self._poller)
 
                 # Read hello & forward to worker
                 elif event & select.EPOLLIN:
-                    self._poller.unregister(fileno)
-                    con = connections.pop(fileno)
-                    self._process(con, worker_lb)
+                    client = connections.get(fileno)
+                    client.stale = 0  # reset stale count
+
+                    # Process connection
+                    self._process(client, worker_lb)
+
+                    # Partial read
+                    if not client.close:
+                        continue
+
+                    connections.pop(fileno)
 
                 # Close
                 else:
-                    self._poller.unregister(fileno)
-                    con = connections.pop(fileno)
-                    self._close_socket(con, shutdown=False)
+                    client = connections.pop(fileno)
+                    client.close_socket(shutdown=False)
 
             # cleanup stale connection
-            for fileno in tuple(stale):
-                if fileno not in connections:
-                    stale.pop(fileno)
-                elif stale[fileno] >= WORKER_STALE_MAX:
-                    self._poller.unregister(fileno)
-                    con = connections.pop(fileno)
-                    self._close_socket(con)
+            for client_id in tuple(connections.keys()):
+                client = connections.get(client_id)
+                if client.stale >= WORKER_STALE_MAX:
+                    connections.pop(client.fileno)
+                    client.close_socket()
                 else:
-                    stale[fileno] += 1
+                    client.stale += 1
 
             # Check if worker are running
             for worker in self._workers:
@@ -249,53 +306,62 @@ class SniTunServerWorker(Thread):
                 _LOGGER.critical("Worker '%s' crashed!", worker.name)
                 os.kill(os.getpid(), signal.SIGINT)
 
-    def _process(self, con: socket.socket, workers_lb: Iterable[ServerWorker]) -> None:
+    def _process(
+        self,
+        client: Connection,
+        workers_lb: Iterable[ServerWorker],
+    ) -> None:
         """Process connection & helo."""
-        data = b""
         try:
-            data = con.recv(2048)
+            data = client.sock.recv(MAX_READ_SIZE)
         except OSError as err:
             _LOGGER.warning("Receive fails: %s", err)
-            self._close_socket(con, shutdown=False)
+            client.close_socket(shutdown=False)
             return
 
         # No data received
         if not data:
-            self._close_socket(con)
+            client.close_socket()
             return
+        client.buffer += data
 
         # Peer connection
-        if data.startswith(b"gA"):
-            next(workers_lb).handover_connection(con, data)
-            _LOGGER.debug("Handover new peer connection: %s", data)
+        if client.buffer.startswith(b"gA"):
+            client.soft_close()
+            next(workers_lb).handover_connection(client.sock, client.buffer)
+            _LOGGER.debug("Handover new peer connection: %s", client.buffer)
             return
 
         # TLS/SSL connection
-        if data[0] != 0x16:
-            _LOGGER.warning("No valid ClientHello found: %s", data)
-            self._close_socket(con)
+        if client.buffer[0] != 0x16:
+            _LOGGER.warning("No valid ClientHello found: %s", client.buffer)
+            client.close_socket()
             return
 
+        # Get Hostname
         try:
-            hostname = parse_tls_sni(data)
+            hostname = parse_tls_sni(client.buffer)
+        except ParseSNIIncompleteError:
+            # Check Buffer Size
+            if len(client.buffer) >= MAX_BUFFER_SIZE:
+                _LOGGER.warning("Connection %d exceed buffer size", client.fileno)
+                client.close_socket()
+            return
         except ParseSNIError:
             _LOGGER.warning("Receive invalid ClientHello on public Interface")
-        else:
-            for worker in self._workers:
-                if not worker.is_responsible_peer(hostname):
-                    continue
-                worker.handover_connection(con, data, sni=hostname)
+            client.close_socket()
+            return
 
-                _LOGGER.info("Handover %s to %s", hostname, worker.name)
-                return
-            _LOGGER.debug("No responsible worker for %s", hostname)
+        # Distribute to child worker
+        for worker in self._workers:
+            if not worker.is_responsible_peer(hostname):
+                continue
+            client.soft_close()
+            worker.handover_connection(client.sock, client.buffer, sni=hostname)
 
-        self._close_socket(con)
+            _LOGGER.debug("Handover %s to %s", hostname, worker.name)
+            return
+        _LOGGER.debug("No responsible worker for %s", hostname)
 
-    @staticmethod
-    def _close_socket(con: socket.socket, shutdown: bool = True) -> None:
-        """Gracefull shutdown a socket or free the handle."""
-        with suppress(OSError):
-            if shutdown:
-                con.shutdown(socket.SHUT_RDWR)
-            con.close()
+        client.close_socket()
+        return

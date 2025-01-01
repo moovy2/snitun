@@ -1,6 +1,6 @@
 """Test Client Peer connections."""
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import ipaddress
 import os
 
@@ -23,7 +23,7 @@ async def test_init_client_peer(peer_listener, peer_manager, test_endpoint):
     assert not client.is_connected
     assert not peer_manager.peer_available("localhost")
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -41,6 +41,37 @@ async def test_init_client_peer(peer_listener, peer_manager, test_endpoint):
     assert not peer_manager.peer_available("localhost")
 
 
+async def test_init_client_peer_with_alias(peer_listener, peer_manager, test_endpoint):
+    """Test setup of ClientPeer with custom tomain."""
+    client = ClientPeer("127.0.0.1", "8893")
+    connector = Connector("127.0.0.1", "8822")
+
+    assert not client.is_connected
+    assert not peer_manager.peer_available("localhost")
+    assert not peer_manager.peer_available("localhost.custom")
+
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
+    aes_key = os.urandom(32)
+    aes_iv = os.urandom(16)
+    hostname = "localhost"
+    fernet_token = create_peer_config(
+        valid.timestamp(), hostname, aes_key, aes_iv, alias=["localhost.custom"]
+    )
+
+    await client.start(connector, fernet_token, aes_key, aes_iv)
+    await asyncio.sleep(0.1)
+    assert peer_manager.peer_available("localhost")
+    assert peer_manager.peer_available("localhost.custom")
+    assert client.is_connected
+    assert client._multiplexer._throttling is None
+
+    await client.stop()
+    await asyncio.sleep(0.1)
+    assert not client.is_connected
+    assert not peer_manager.peer_available("localhost")
+    assert not peer_manager.peer_available("localhost.custom")
+
+
 async def test_init_client_peer_invalid_token(
     peer_listener, peer_manager, test_endpoint
 ):
@@ -50,7 +81,7 @@ async def test_init_client_peer_invalid_token(
 
     assert not peer_manager.peer_available("localhost")
 
-    valid = datetime.utcnow() + timedelta(days=-1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=-1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -69,7 +100,7 @@ async def test_flow_client_peer(peer_listener, peer_manager, test_endpoint):
 
     assert not peer_manager.peer_available("localhost")
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -113,7 +144,7 @@ async def test_close_client_peer(peer_listener, peer_manager, test_endpoint):
 
     assert not peer_manager.peer_available("localhost")
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -161,7 +192,7 @@ async def test_init_client_peer_wait(peer_listener, peer_manager, test_endpoint)
     assert not client.is_connected
     assert not peer_manager.peer_available("localhost")
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
@@ -191,7 +222,7 @@ async def test_init_client_peer_throttling(peer_listener, peer_manager, test_end
     assert not client.is_connected
     assert not peer_manager.peer_available("localhost")
 
-    valid = datetime.utcnow() + timedelta(days=1)
+    valid = datetime.now(tz=timezone.utc) + timedelta(days=1)
     aes_key = os.urandom(32)
     aes_iv = os.urandom(16)
     hostname = "localhost"
